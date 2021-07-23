@@ -35,13 +35,24 @@ app.initializers.add("askvortsov/saml", () => {
           app.translator.trans("askvortsov-saml.forum.log_in.enable_popups")
         );
       }
+      
       win.focus();
-    }
+      
+      var watch = function() {
+         if(win.closed) {
+            window.location.reload();
+         } else {
+            setTimeout(watch, 1000);
+         }
+      };
+
+      watch();
+     }
   }
 
   function seePopupText() {
     return [
-      <a class="Button Button--primary" href="/auth/saml/login" target="_blank">
+      <a class="Button Button--primary" onclick="javascript:showSamlPopup();" >
         {app.translator.trans("askvortsov-saml.forum.log_in.open_popup")}
       </a>,
     ];

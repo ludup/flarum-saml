@@ -23,6 +23,8 @@ use OneLogin\Saml2\Constants;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Http\Server\RequestHandlerInterface;
+use Flarum\User\UserRepository;
+use Flarum\User\User;
 
 class ACSController implements RequestHandlerInterface
 {
@@ -43,11 +45,14 @@ class ACSController implements RequestHandlerInterface
      */
     protected $extensions;
 
-    public function __construct(ResponseFactory $response, SettingsRepositoryInterface $settings, ExtensionManager $extensions)
+    protected $users;
+
+    public function __construct(ResponseFactory $response, SettingsRepositoryInterface $settings, ExtensionManager $extensions, UserRepository $users)
     {
         $this->response = $response;
         $this->settings = $settings;
         $this->extensions = $extensions;
+	$this->users = $users;
     }
 
     public function handle(Request $request): Response
@@ -105,6 +110,7 @@ class ACSController implements RequestHandlerInterface
         }
 
         $avatar = $saml->getAttribute('avatar')[0];
+        $username = $saml->getAttribute('username')[0];
 
         if ($this->extensions->isEnabled('askvortsov-auth-sync') && $this->settings->get('askvortsov-saml.sync_attributes', false)) {
             $event = new AuthSyncEvent();
@@ -117,6 +123,14 @@ class ACSController implements RequestHandlerInterface
             ]);
             $event->time = Carbon::now();
             $event->save();
+        }
+
+        $u = $this->users->findByEmail($email);
+        if ($u == null) {
+             $password = $this->generateStrongPassword();
+             $u = User::register($username, $email, $password);
+             $u->activate();
+             $u->save();
         }
 
         return $this->response->make(
@@ -134,4 +148,49 @@ class ACSController implements RequestHandlerInterface
             }
         );
     }
+  
+    private function generateStrongPassword($length = 9, $add_dashes = false, $available_sets = 'luds')
+    {
+        $sets = array();
+        if (strpos($available_sets, 'l') !== false) {
+            $sets[] = 'abcdefghjkmnpqrstuvwxyz';
+        }
+        if (strpos($available_sets, 'u') !== false) {
+            $sets[] = 'ABCDEFGHJKMNPQRSTUVWXYZ';
+        }
+        if (strpos($available_sets, 'd') !== false) {
+            $sets[] = '23456789';
+        }
+        if (strpos($available_sets, 's') !== false) {
+            $sets[] = '!@#$%&*?';
+        }
+
+        $all = '';
+        $password = '';
+        foreach ($sets as $set) {
+            $password .= $set[array_rand(str_split($set))];
+            $all .= $set;
+        }
+
+        $all = str_split($all);
+        for ($i = 0; $i < $length - count($sets); $i++) {
+            $password .= $all[array_rand($all)];
+        }
+
+        $password = str_shuffle($password);
+
+        if (!$add_dashes) {
+            return $password;
+        }
+
+        $dash_len = floor(sqrt($length));
+        $dash_str = '';
+        while (strlen($password) > $dash_len) {
+            $dash_str .= substr($password, 0, $dash_len) . '-';
+            $password = substr($password, $dash_len);
+        }
+        $dash_str .= $password;
+        return $dash_str;
+    }
+
 }
